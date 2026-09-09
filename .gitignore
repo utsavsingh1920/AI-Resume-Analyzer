@@ -1,0 +1,19 @@
+venv/
+App/venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+App/Uploaded_Resumes/
+App/Uploaded_Resume1/
+App/resume_analyzer.db
+.env
+*.env
+._*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+App/Uploaded_Resume1
+RESUME ANALYSER SYNOPSIS.pdf
