@@ -52,3 +52,5 @@ urllib3==2.2.2
 validators==0.28.1
 wasabi==1.1.2
 watchdog==4.0.1
+geocoder==1.38.1
+geopy==2.4.1
