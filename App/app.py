@@ -6,6 +6,8 @@ import sqlite3
 import os
 import socket
 import platform
+import getpass
+from pathlib import Path
 import geocoder
 import secrets
 import io
@@ -13,18 +15,17 @@ import plotly.express as px
 import plotly.graph_objects as go
 from geopy.geocoders import Nominatim
 from resume_parser import ResumeParser
-from pdfminer3.layout import LAParams, LTTextBox
-from pdfminer3.pdfpage import PDFPage
-from pdfminer3.pdfinterp import PDFResourceManager
-from pdfminer3.pdfinterp import PDFPageInterpreter
-from pdfminer3.converter import TextConverter
+from pdfminer.layout import LAParams, LTTextBox
+from pdfminer.pdfpage import PDFPage
+from pdfminer.pdfinterp import PDFResourceManager
+from pdfminer.pdfinterp import PDFPageInterpreter
+from pdfminer.converter import TextConverter
 from streamlit_tags import st_tags
 from PIL import Image
-from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
 from Courses import ds_course, web_course, android_course, ios_course, uiux_course, resume_videos, interview_videos
 import nltk
-nltk.download('stopwords')
+nltk.download('stopwords', quiet=True)
 import re
 
 # Try loading en_core_web_sm and download if missing
@@ -34,9 +35,58 @@ import re
 #     download("en_core_web_sm")
     # nlp = spacy.load("en_core_web_sm")
 
-# Connect to SQLite database
-connection = sqlite3.connect('resume_analyzer.db')
+# ---------------- Cloud-safe paths & database setup ----------------
+BASE_DIR = Path(__file__).resolve().parent
+LOGO_DIR = BASE_DIR / "Logo"
+UPLOAD_DIR = BASE_DIR / "Uploaded_Resumes"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+DB_PATH = BASE_DIR / "resume_analyzer.db"
+connection = sqlite3.connect(DB_PATH, check_same_thread=False)
 cursor = connection.cursor()
+
+# Create required tables if they do not already exist.
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS user_data (
+    ID INTEGER PRIMARY KEY AUTOINCREMENT,
+    sec_token TEXT,
+    ip_add TEXT,
+    host_name TEXT,
+    dev_user TEXT,
+    os_name_ver TEXT,
+    latlong TEXT,
+    city TEXT,
+    state TEXT,
+    country TEXT,
+    act_name TEXT,
+    act_mail TEXT,
+    act_mob TEXT,
+    Name TEXT,
+    Email_ID TEXT,
+    resume_score TEXT,
+    Timestamp TEXT,
+    Page_no TEXT,
+    Predicted_Field TEXT,
+    User_level TEXT,
+    Actual_skills TEXT,
+    Recommended_skills TEXT,
+    Recommended_courses TEXT,
+    pdf_name TEXT
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS user_feedback (
+    ID INTEGER PRIMARY KEY AUTOINCREMENT,
+    feed_name TEXT NOT NULL,
+    feed_email TEXT NOT NULL,
+    feed_score TEXT NOT NULL,
+    comments TEXT,
+    Timestamp TEXT NOT NULL
+)
+""")
+
+connection.commit()
 
 ###### Preprocessing functions ######
 
@@ -115,7 +165,7 @@ def insertf_data(feed_name, feed_email, feed_score, comments, Timestamp):
 
 st.set_page_config(
     page_title="AI Resume Analyzer",
-    page_icon='./Logo/recommend.png',
+    page_icon=str(LOGO_DIR / 'recommend.png'),
 )
 
 ###### Main function run() ######
@@ -127,16 +177,17 @@ geolocator = Nominatim(
 
 
 def safe_reverse_geocode(latlong):
+    if not latlong:
+        return None
     try:
-        location = geolocator.reverse(latlong, language="en")
-        return location   # ✅ return full object
-    except (GeocoderTimedOut, GeocoderUnavailable):
+        return geolocator.reverse(latlong, language="en")
+    except (GeocoderTimedOut, GeocoderUnavailable, ValueError, TypeError):
         return None
 
 
 def run():
     
-    img = Image.open('./Logo/Updatedarkmode.jpeg')
+    img = Image.open(LOGO_DIR / 'Updatedarkmode.jpeg')
 
     # video = st.video('./Logo/Resume-Analyzer.mp4')
 
@@ -206,12 +257,23 @@ def run():
         act_mob = st.text_input('Mobile Number*')
         sec_token = secrets.token_urlsafe(12)
         host_name = socket.gethostname()
-        ip_add = socket.gethostbyname(host_name)
-        dev_user = os.getlogin()
+        try:
+            ip_add = socket.gethostbyname(host_name)
+        except socket.gaierror:
+            ip_add = "Unknown"
+
+        try:
+            dev_user = os.getlogin()
+        except OSError:
+            dev_user = getpass.getuser() or "Unknown"
+
         os_name_ver = platform.system() + " " + platform.release()
-        g = geocoder.ip('me')
-        latlong = g.latlng
-        geolocator = Nominatim(user_agent="http")
+
+        try:
+            g = geocoder.ip('me')
+            latlong = g.latlng if g and g.ok else None
+        except Exception:
+            latlong = None
         # location = geolocator.reverse(latlong, language='en')
         location = safe_reverse_geocode(latlong)
 
@@ -237,12 +299,6 @@ def run():
         if act_name:
             if not re.match(r'^[A-Za-z ]+$', act_name):
                 st.error("❌ Name should contain only alphabets (A-Z)")
-                st.stop()
-
-        if act_mail:
-            email_pattern = r'^[\w\.-]+@(gmail\.com|outlook\.com)$'
-            if not re.match(email_pattern, act_mail):
-                st.error("❌ Only Gmail or Outlook emails are allowed")
                 st.stop()
 
         if act_mail:
@@ -287,7 +343,7 @@ def run():
     # -------- ORIGINAL CODE CONTINUES --------
             with st.spinner('Hang On While We Cook Magic For You...'):
                 time.sleep(4)
-            save_image_path = './Uploaded_Resumes/' + pdf_file.name
+            save_image_path = str(UPLOAD_DIR / pdf_file.name)
             pdf_name = pdf_file.name
             with open(save_image_path, "wb") as f:
                 f.write(pdf_file.getbuffer())
